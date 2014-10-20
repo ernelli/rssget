@@ -21,7 +21,8 @@ var config = {
     transmission: {
         host: "localhost",
         user: "transmission",
-        password: ""}
+        password: ""},
+    "poll-interval": 3600,
 };
 
 try {
@@ -43,11 +44,47 @@ mixin(config, fileConfig);
 
 console.log("using config: ", config);
 
+var ledger;
+
+try {
+    ledger = JSON.parse(fs.readFileSync("ledger.json"));
+} catch(e3) {
+    console.log("initialising ledger file");
+    fs.writeFileSync("ledger.json", JSON.stringify(ledger));
+    ledger = {};
+}
+
+
+function writeLedger() {
+    console.log("write data to ledger: ", JSON.stringify(ledger));
+
+    fs.writeFileSync("ledger.json_", JSON.stringify(ledger));
+
+    if(fs.existsSync("ledger.json~")) {
+        fs.unlinkSync("ledger.json~");
+    }
+    
+    if(fs.existsSync("ledger.json")) {
+        fs.renameSync("ledger.json", "ledger.json~");
+    }
+
+    fs.renameSync("ledger.json_", "ledger.json");
+}
+
 var xmlparser = new xml2js.Parser();
 
 var tm = new Transmission(config.transmission);
 
-function getrss(config) {
+// mock transmission API when testing the rss parser w:o adding the torrents
+tm.addUrlx = function(link, cb) {
+    console.log("adding url to transmission: " + link);
+    setTimeout(function() {
+        console.log("url added, transmission done");
+        cb();
+    }, 1000);
+}
+
+function getrss(config, cb) {
     var uri = "http://showrss.info/rss.php?" + querystring.stringify(config);
 
     console.log("get uri: " + uri);
@@ -73,23 +110,83 @@ function getrss(config) {
 
         var torrents = [];
 
-        var i;
+        var i = 0;
+        var j = 0;
 
         rss = rss.rss;
        
-        for(i = 0; i < rss.channel.length; i++) {
-            var channel = rss.channel[i];
-            //console.log("channel: ", );
-            for(var j = 0; j < channel.item.length; j++) {
-                var item = channel.item[j];
-                console.log("item");
-                console.log("title: ", item.title);
-                console.log("link: ", item.link);
+        function nextChannel() {
+            if(i < rss.channel.length) {
+                var channel = rss.channel[i++];    
+                j = 0;
+                function nextItem() {
+                    if(j < channel.item.length) {
+                        var item = channel.item[j++];
+                        console.log("item: ", item);
+                        
+                        var title = item.title[0];
+                        var link = item.link[0];
+                        
+                        console.log("title: ", title);
+                        console.log("link: ", link);
+                        
+                        var fields = querystring.parse(link.split("?")[1]);
+                        console.log("link fields: ", fields);
+                        
+                        var xt = fields.xt;
+                        
+                        console.log("check ledger for xt: " + xt);
+
+                        if(!xt || !ledger[xt]) {
+                            console.log("adding torrent url: " + link);
+                            tm.addUrl(link, function(err, res) {
+                                // store in ledger that torrent has been added
+                                
+                                if(err) {
+                                    console.log("Failed to add torrent: ", err);
+                                } else {
+                                    console.log("torrent added, res: ", res);
+                                    ledger[xt] = {
+                                        title: title,
+                                        timestamp: Date.now()
+                                    };
+                                    console.log("updating ledger with: ", ledger[xt]);
+                                    writeLedger();
+                                    console.log("ledger updated");
+                                }
+                                nextItem();
+                            });
+                        } else {
+                            console.log("skip torrent, already in ledger: " + xt);
+                            nextItem();
+                        }
+                    } else {
+                        nextChannel();
+                    }
+                }
+                //start iterating items
+                nextItem();
+            } else {
+                // all channels done
+                cb(false);
             }
         }
+        // start iterating channels
+        nextChannel();
+        
     });
 
 });
+}
+
+var pollInterval = 1*config["poll-interval"];
+if(!pollInterval || typeof pollInterval !== "number") {
+    pollInterval = 3600;
+}
+
+if(pollInterval < 600) {
+    console.log("polling interval must be at least 10 min");
+    pollInterval = 600;
 }
 
 tm.active(function(err, res) {
@@ -99,6 +196,18 @@ tm.active(function(err, res) {
     }
 
     console.log("active: ", res);
-    getrss(config.showrss);
+    
+    function poll() {
+        getrss(config.showrss, function(err, res) {
+            if(err) {
+                console.log("getrss failed: ", err);
+                process.exit(1);
+            }
+            
+            console.log("getrss done wait until next rss poll in " + pollInterval + " seconds");
+            setTimeout(poll, 1000*pollInterval);
+        });
+    }
+    poll();
 });
 
