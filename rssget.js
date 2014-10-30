@@ -91,18 +91,20 @@ function getrss(config, cb) {
 
     request({ uri: uri, method: "GET"}, function(err, res, xml) {
     if(err) {
-        console.log("rssget failed: ", err);
+        console.log("rssget, request failed: ", err);
         return;
     }
 
     if(res.statusCode !== 200) {
-        console.log("url fetch failed: ", res);
+        console.log("url fetch failed, status not 200 OK: ", res);
+        cb("rssget, request failed, status code: " + res.statusCode);
         return;        
     }
 
     xmlparser.parseString(xml, function(err, rss) {
         if(err) {
             console.log("invalid xml: ", err);
+            cb(err);
             return;
         }
 
@@ -201,7 +203,6 @@ tm.active(function(err, res) {
         getrss(config.showrss, function(err, res) {
             if(err) {
                 console.log("getrss failed: ", err);
-                process.exit(1);
             }
             
             console.log("getrss done wait until next rss poll in " + pollInterval + " seconds");
