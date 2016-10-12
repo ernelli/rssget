@@ -22,7 +22,7 @@ var config = {
         host: "localhost",
         user: "transmission",
         password: ""},
-    "poll-interval": 3600,
+    "poll-interval": 600,
 };
 
 try {
@@ -85,8 +85,8 @@ tm.addUrlx = function(link, cb) {
 }
 
 function getrss(config, cb) {
-    var uri = "http://showrss.info/rss.php?" + querystring.stringify(config);
-
+    var uri = config.url ? config.url :  "http://showrss.info/rss.php?" + querystring.stringify(config);
+    
     console.log("get uri: " + uri);
 
     request({ uri: uri, method: "GET"}, function(err, res, xml) {
@@ -135,7 +135,7 @@ function getrss(config, cb) {
                         var fields = querystring.parse(link.split("?")[1]);
                         console.log("link fields: ", fields);
                         
-                        var xt = fields.xt;
+                        var xt = fields.xt || link;
                         
                         console.log("check ledger for xt: " + xt);
 
@@ -167,7 +167,13 @@ function getrss(config, cb) {
                     }
                 }
                 //start iterating items
-                nextItem();
+                try {
+                   nextItem();
+                } catch(e1) {
+                   console.log("Failed to parse rss feed: " + e1);
+		   console.log("xml:\n" + xml);
+		   cb(e1);
+               }
             } else {
                 // all channels done
                 cb(false);
@@ -200,7 +206,7 @@ tm.active(function(err, res) {
     console.log("active: ", res);
     
     function poll() {
-        getrss(config.showrss, function(err, res) {
+        getrss(config, function(err, res) {
             if(err) {
                 console.log("getrss failed: ", err);
             }
