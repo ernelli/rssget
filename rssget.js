@@ -92,6 +92,7 @@ function getrss(config, cb) {
     request({ uri: uri, method: "GET"}, function(err, res, xml) {
     if(err) {
         console.log("rssget, request failed: ", err);
+        cb && cb(err);
         return;
     }
 
@@ -115,14 +116,12 @@ function getrss(config, cb) {
         var i = 0;
         var j = 0;
 
-        rss = rss.rss;
-       
         function nextChannel() {
             if(i < rss.channel.length) {
                 var channel = rss.channel[i++];    
                 j = 0;
                 function nextItem() {
-                    if(j < channel.item.length) {
+                    if(channel.item && j < channel.item.length) {
                         var item = channel.item[j++];
                         console.log("item: ", item);
                         
@@ -180,8 +179,16 @@ function getrss(config, cb) {
             }
         }
         // start iterating channels
-        nextChannel();
-        
+        rss = rss && rss.rss;
+
+        if(rss) {
+          nextChannel();
+        } else {
+           console.log("Failed to parse rss feed, no rss field ");
+           console.log("xml:\n" + xml);
+           cb("Invalid xml");
+
+        }
     });
 
 });
